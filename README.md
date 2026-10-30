@@ -2,7 +2,7 @@
 
 Shared foundation for a collection of hyper-realistic competitive games: deterministic simulation kernel, scenario and replay systems, ocean and atmosphere modules, ratings and tooling.
 
-**Status:** Specification stage - design only; no code, no engine project, nothing verified yet.
+**Status:** Specification stage plus the first code: `hr-core` (deterministic RNG, SHA-256, hash chain, fixed clock, typed errors) with unit tests and Linux/Windows CI. Nothing else is implemented; no Unreal project exists.
 
 | Document | Purpose |
 |---|---|
