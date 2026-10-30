@@ -7,6 +7,7 @@ Shared foundation for a collection of hyper-realistic competitive games: determi
 | Document | Purpose |
 |---|---|
 | [docs/SPEC.md](docs/SPEC.md) | Architecture and scoping specification |
+| [docs/COLLECTION.md](docs/COLLECTION.md) | Collection-level product overview |
 | [docs/DATA_CONTRACTS.md](docs/DATA_CONTRACTS.md) | Schemas, versioning, hashing and error model |
 | [docs/BACKEND.md](docs/BACKEND.md) | Verification backend, API and threat model |
 | [docs/adr/](docs/adr/) | Architecture decision records |
