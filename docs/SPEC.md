@@ -21,7 +21,7 @@ The collection is a set of **hyper-realistic, skill-based, competitive** games i
 | P4 | **Data-grounded environments.** Real elevation, bathymetry, weather and traffic statistics drive the worlds; hand art is reserved for hero locations. | A single developer can produce credible scale. |
 | P5 | **Every result is explainable.** Each scored outcome can be traced to logged inputs and sim state. | Debrief screens, replays and tuning all use the same trace. |
 | P6 | **Share only what two titles need.** Platform modules are extracted when a second title has a concrete use. | Avoids a speculative framework. |
-| P7 | **Public sources only for defense-adjacent physics.** Ballistics, sensors and maritime tracking use published, public references. | See Section 12. |
+| P7 | **Public sources only for physics and sensors.** Ballistics, sensors and maritime tracking use published, public references or clearly labelled invented parameters. | See Section 12. |
 
 **Non-goals:** a general-purpose engine, a live-service backend with monetization, console certification, mobile, user-generated content in v1, third-party mod support.
 
@@ -36,19 +36,21 @@ The collection is a set of **hyper-realistic, skill-based, competitive** games i
 - **Large World Coordinates** for kilometre-scale scenes (Horizon Line, Gale Force, Dark Fleet) `[VERIFY engine default]`.
 - **IDE:** Visual Studio 2022 (Community) with the "Game development with C++" workload, or JetBrains Rider.
 
-### 2.2 Repositories (all private initially)
+### 2.2 Repositories (public)
 
 | Repo | Contents |
 |---|---|
-| `hyperreal-platform` | This spec, shared plugins, tools, CI, license register |
-| `horizon-line` | UE project + `docs/SPEC.md` + `docs/SPIKES.md` |
-| `gale-force` | UE project + docs |
-| `dark-fleet` | UE project + docs |
-| `depth-charge` | UE project + docs |
+| `hyperreal-platform` | This spec, **`hr-core` standalone C++ library**, Python bindings, shared UE plugin layer, tools, CI, license register, ADRs |
+| `horizon-line` | Title code + UE project + `docs/` |
+| `gale-force` | Title code + UE project + docs |
+| `dark-fleet` | Title code (headless sim, agents, bench) + UE project + docs. **First title.** |
+| `depth-charge` | Title code + UE project + docs |
 
-Game repos consume the platform as a **git submodule** at `Plugins/HyperrealPlatform` (an Unreal plugin collection). Rationale: independent versioning per title, one place to fix shared bugs, no monorepo of hundreds of GB. Alternative considered and rejected for now: a Perforce depot (better binary locking, but heavier than needed for a single developer).
+Game repos consume the platform as a **git submodule** at `extern/hyperreal-platform`. The Unreal integration layer is a thin plugin that links the standalone core (Section 3.1). Rationale: independent versioning per title, one place to fix shared bugs, no monorepo of hundreds of GB. A Perforce depot was considered and rejected for now.
 
-All repos use **Git LFS** from the first commit (patterns in each `.gitattributes`). Keep large source data (DEM tiles, imagery, AIS extracts) **out of git**; track them via a manifest with hashes (Section 8.3).
+**Licensing.** Code is Apache-2.0 (`LICENSE`); docs, specifications and benchmark data are CC BY 4.0 (`LICENSE-DOCS`). Third-party assets, engine content and model weights are **not** covered and are recorded in each repo's `docs/SOURCES_AND_LICENSES.md`.
+
+**Large files policy (public repos).** The repos do **not** use Git LFS for large assets: LFS bandwidth for public clones counts against the owner's quota `[VERIFY current quota]`. Git holds code, specs, small test fixtures and manifests. Large data (DEM tiles, imagery, AIS extracts, trained weights, Unreal content) lives outside git, referenced by manifest entries with SHA-256 hashes (Section 8.3), and is published as release artifacts or external storage when appropriate. Unreal project content is kept in a separate private location unless every asset's license permits redistribution.
 
 ### 2.3 Hardware tiers
 
@@ -64,7 +66,27 @@ The Dev machine is **not** a minimum spec. Frame-time budgets are set per title 
 
 ## 3. Module architecture
 
-All modules are UE plugins under `Plugins/HyperrealPlatform/`. Dependency direction is strictly downward.
+### 3.1 Two layers: a standalone core and an Unreal integration layer
+
+**Decision (ADR 0001):** simulation and verification code is an **engine-independent C++20 library (`hr-core`, built with CMake) with Python bindings (pybind11 or nanobind)**. Unreal consumes it through a thin integration plugin and is responsible only for rendering, input and UI.
+
+Why:
+- The same binary runs **headless** for CI, server-side replay verification, tournaments and ML training, with no engine install.
+- Python bindings give the ML work a Gymnasium-style environment and make the sim an MCP-servable tool backend.
+- It removes the dependency on a source-built Unreal engine for verification servers.
+- It makes the engineering split visible: reviewable, testable simulation code versus presentation.
+
+Unreal-dependent modules (HRUE*) contain no authoritative game logic.
+
+```
+ UE integration layer (rendering, input, UI, audio)    <- HRUE* plugin(s)
+ ------------------------------------------------------
+ hr-core (C++20, no engine dependency)                 <- CMake, tests, Python bindings
+```
+
+### 3.2 Module map
+
+Modules below are **hr-core** libraries unless suffixed UE. Dependency direction is strictly downward.
 
 ```
                      Game modules (per title)
@@ -97,8 +119,10 @@ All modules are UE plugins under `Plugins/HyperrealPlatform/`. Dependency direct
 | **HRRating** | Skill rating (TrueSkill-family and Elo/Glicko variants), calibration tooling, season logic | all |
 | **HRSessions** | Lobby, matchmaking, leaderboard, daily seeds, account linkage (EOS or alternative) | all (later) |
 | **HRTelemetry** | Structured event log, replay-linked analytics, anomaly features | all |
-| **HRAgents** | Bot framework, imitation/RL training bridge (Learning Agents `[VERIFY maturity]` or external Python trainer), evaluation harness | all |
-| **HRUI** | Shared HUD/diagnostic widgets, replay scrubber, accessibility options | all |
+| **HRAgents** | Classical and learned bot framework, RL/imitation training via Python (PyTorch), ONNX export, evaluation harness | all |
+| **HRUI (UE)** | Shared HUD/diagnostic widgets, replay scrubber, accessibility options | all |
+| **HRPy** | Python bindings, Gymnasium-style environments, headless runner, MCP server scaffolding | all (Dark Fleet first) |
+| **HRAgentKit** | Agent harness: tool schemas, role-filtered tool surface, tracing, eval runner, injection test suite | Dark Fleet first |
 
 **Rule:** a module is added to the platform only after a second title demonstrates a concrete need (P6). Initially `HRCore`, `HRScenario`, `HRReplay` and `HRGeo` are built because every title needs them; the domain modules begin inside the first title that needs them and are extracted when a second adopts them (HROcean is the expected first extraction, shared by Gale Force and Dark Fleet).
 
@@ -237,12 +261,13 @@ Visual honesty rule (P1): any visual cue that carries gameplay information has a
 |---|---|
 | Ghost opponents | Replay playback (no ML) - baseline for every title |
 | Scripted benchmark bots | Rule-based bots to define difficulty tiers and test balance |
-| Learned bots | Imitation learning from recorded human replays, then RL fine-tuning; engine Learning Agents plugin `[VERIFY maturity]` or an external Python trainer (PyTorch) talking to a headless sim build |
+| Learned bots | Imitation learning from recorded human replays, then RL fine-tuning; an external Python trainer (PyTorch) talking to the headless `hr-core` build via HRPy; the engine's Learning Agents plugin is an optional alternative `[VERIFY maturity]` |
 | Headless sim | Every title's sim core must run **without rendering** at >> real time for training and server verification |
 | Evaluation | Elo/TrueSkill of bots against humans and against each other; behavioral-diversity checks; cheating-resistance checks (bots must use the same inputs as players) |
 | Anomaly detection | Telemetry features (input timing entropy, reaction latencies, trajectory smoothness) to flag impossible-skill outliers for human review |
 | Compute | Local GPU training on the RTX A4500; avoid cloud spend unless chosen |
-| Non-goals | No runtime LLM dependency in any title |
+| LLM agents (optional, isolated) | **In scope for Dark Fleet first.** Agents never touch the deterministic core directly: they act through the same typed, role-filtered action API as a human, are exposed as an MCP server over the headless sim, run locally by default (open-weight models via a local runtime) with hosted models optional, and their decisions are recorded in the replay as inputs. Games remain fully playable with agents disabled. See `dark-fleet/docs/AGENTS.md`. |
+| ML engineering standard | Every learned component has a problem formulation, baseline, metrics, ablations, reproducible training (seeded, config-driven, tracked), exported model, model card and CI evaluation. See each title's `docs/ML.md`. |
 
 ---
 
@@ -263,7 +288,7 @@ Visual honesty rule (P1): any visual cue that carries gameplay information has a
 
 ## 12. Boundaries, safety and policy
 
-- **Defense-adjacent content.** Ballistics, sensors and maritime tracking use **public physics and published references only**. No controlled, proprietary or employer-derived data, models, parameters or tooling. Keep all work on personal accounts and equipment. The owner has confirmed no employment conflict for the existing portfolio; reconfirm for any title whose domain closely mirrors professional work.
+- **Public-source physics.** Ballistics, sensors and maritime tracking use **public physics and published references only**. Where no public value exists, parameters are invented, labelled as tunable design values, and never derived from non-public sources. All work is done on personal accounts and equipment.
 - **Real vs fictional.** Real geography; fictional vessels, companies, people and incidents. No implication of wrongdoing by real identifiable parties.
 - **Content ratings/themes.** Horizon Line frames shooting as **precision-rifle sport** (paper, steel, clay; no human or animal targets). No gore. Dark Fleet depicts interdiction without graphic violence.
 - **Safety framing for Depth Charge.** Breath-hold physiology is simulated for gameplay; the game does not teach unsupervised real-world breath-hold diving and includes an explicit safety notice (see that spec).
@@ -278,22 +303,23 @@ Gates are evidence-based; calendar dates are deliberately absent.
 
 | Gate | Deliverable | Exit evidence |
 |---|---|---|
-| G0 | Toolchain installed on Dev machine; empty UE project builds and packages; LFS verified | Packaged Windows build runs outside the editor |
+| G0 | `hr-core` builds with CMake on Windows and Linux CI; unit-test harness; Python bindings import | CI green; `pip install -e .` works; ADRs recorded |
 | G1 | HRCore + HRScenario + HRReplay v0 with a toy sim | Determinism test passes; replay re-sim hashes match across 1,000 runs |
-| G2 | HRGeo + first environment import (one DEM tile, georeferenced, rendered) | Terrain matches reference coordinates within stated tolerance |
+| G2 | HRGeo + first environment import (one DEM tile, georeferenced, tested headless) | Terrain matches reference coordinates within stated tolerance |
+| G2U | **Unreal toolchain installed; empty UE project links `hr-core`; packaged build runs outside the editor** (deferred until the first title needs visuals) | Packaged Windows build runs outside the editor |
 | G3 | First title's core spike ladder complete | Per-title `docs/SPIKES.md` pass criteria met |
 | G4 | First title vertical slice (one scenario, ghost competition, replay, leaderboard stub) | Honest owner playtest recorded |
 | G5 | Server-verified async leaderboard | A tampered input log is rejected by the verifier |
 | G6 | Second title enters; shared modules extracted | Second title reuses at least two platform modules unmodified |
 | G7 | Optional live 1v1 | Two-client session passes desync tests |
 
-### Recommended title order
-1. **Horizon Line** - smallest competitive loop, strongest "realism is the skill" fit, lowest netcode risk.
-2. **Gale Force** - drives HROcean and the fixed-step multi-agent sim; proven demand.
-3. **Dark Fleet** - reuses HROcean/HRAtmosphere/HRGeo; adds HRSensors and hidden-information design.
-4. **Depth Charge** - reuses HROcean/HRFlow; most novel simulation (physiology) and rendering (underwater optics).
+### Title order (owner-confirmed first title)
+1. **Dark Fleet** - **confirmed first.** Highest ML/agent value; headless-first so the simulation, bots, tracker, agent harness and benchmark need no Unreal and little art. Unreal sensor views come last.
+2. **Horizon Line** - the visual and optics flagship; learned wind-reading model.
+3. **Gale Force** - drives HROcean and the fixed-step multi-agent sim.
+4. **Depth Charge** - most novel physiology and underwater rendering.
 
-This order is a recommendation; the owner decides which titles are built.
+Later titles are optional and unscheduled; the owner decides which are built after each title's spike results.
 
 ---
 
@@ -306,14 +332,15 @@ This order is a recommendation; the owner decides which titles are built.
 | Dev laptop thermal/perf limits mask or exaggerate issues | High | Medium | Test on reference tier; record frame-time percentiles not averages |
 | Scope sprawl across four titles | High | High | One title at a time; gates; platform extraction only on second use |
 | Data licensing mistakes | Medium | Medium | Manifest + attribution gate |
-| Binary asset repository growth | High | Medium | LFS, data-by-manifest, strict asset budget; consider Perforce if LFS quota is limiting |
+| Binary asset repository growth | High | Medium | No LFS in public repos; data-by-manifest; assets outside git; strict asset budget |
 | Hyper-real art volume unattainable by hand | High | Medium | Data-driven world generation, kit-based assets, narrow hero scenes |
 | Competitive layer stalls without players | High | Low (portfolio) | Ghosts, bots and replays make single-player competitive |
-| Employer/IP perception for defense-adjacent domains | Low-Medium | High | Public sources only, personal equipment, documented boundary |
 
 ---
 
 ## 15. Open decisions
+
+See also: [DATA_CONTRACTS.md](./DATA_CONTRACTS.md), [BACKEND.md](./BACKEND.md), [adr/](./adr/).
 
 | Decision | Default | Resolve by |
 |---|---|---|
