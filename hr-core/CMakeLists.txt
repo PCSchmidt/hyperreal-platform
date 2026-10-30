@@ -15,6 +15,8 @@ else()
 endif()
 
 if(HR_BUILD_TESTS)
+  # Newer CMake rejects third-party projects declaring minimum versions below 3.5.
+  set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
   include(FetchContent)
   FetchContent_Declare(doctest
     GIT_REPOSITORY https://github.com/doctest/doctest.git
